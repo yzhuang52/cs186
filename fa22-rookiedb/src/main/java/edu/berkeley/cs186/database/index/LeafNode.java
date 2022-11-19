@@ -147,24 +147,41 @@ class LeafNode extends BPlusNode {
     @Override
     public LeafNode get(DataBox key) {
         // TODO(proj2): implement
-
-        return null;
+        return this;
     }
 
     // See BPlusNode.getLeftmostLeaf.
     @Override
     public LeafNode getLeftmostLeaf() {
         // TODO(proj2): implement
-
-        return null;
+        return this;
     }
 
     // See BPlusNode.put.
     @Override
-    public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid) {
+    public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid) throws BPlusTreeException{
         // TODO(proj2): implement
-
-        return Optional.empty();
+        if(this.keys.contains(key)) {
+            throw new BPlusTreeException("No duplicated key allowed!");
+        }
+        int index = InnerNode.numLessThan(key, this.keys);
+        this.keys.add(index, key);
+        this.rids.add(index, rid);
+        if(this.keys.size()<=metadata.getOrder()*2){
+            this.sync();
+            return Optional.empty();
+        }else{
+            List<DataBox> new_keys = new ArrayList<>();
+            List<RecordId> new_rids = new ArrayList<>();
+            for(int i=metadata.getOrder(); i<metadata.getOrder()*2+1; i++){
+                new_keys.add(this.keys.remove(i));
+                new_rids.add(this.rids.remove(i));
+            }
+            LeafNode split_node = new LeafNode(metadata, bufferManager, new_keys, new_rids, rightSibling, treeContext);
+            this.rightSibling = Optional.of(split_node.getPage().getPageNum());
+            this.sync();
+            return Optional.of(new Pair<DataBox, Long>(new_keys.get(0), split_node.getPage().getPageNum()));
+        }
     }
 
     // See BPlusNode.bulkLoad.
@@ -180,7 +197,12 @@ class LeafNode extends BPlusNode {
     @Override
     public void remove(DataBox key) {
         // TODO(proj2): implement
-
+        Integer index = this.keys.indexOf(key);
+        if(index>=0){
+            this.rids.remove(index);
+            this.keys.remove(index);
+            this.sync();
+        }
         return;
     }
 
