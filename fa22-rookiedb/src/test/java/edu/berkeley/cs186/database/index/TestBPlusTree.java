@@ -111,6 +111,7 @@ public class TestBPlusTree {
         assertTrue("too few I/Os used overall (" + (finalIOs - initialIOs) + " < " + maxIOs +
                    ") - are you materializing before the iterator is even constructed?",
                    (finalIOs - initialIOs) >= maxIOs);
+
         return xs;
     }
 

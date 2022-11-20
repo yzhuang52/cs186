@@ -11,6 +11,7 @@ import edu.berkeley.cs186.database.io.DiskSpaceManager;
 import edu.berkeley.cs186.database.memory.BufferManager;
 import edu.berkeley.cs186.database.table.RecordId;
 
+import javax.swing.text.html.Option;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -62,6 +63,7 @@ public class BPlusTree {
 
     // lock context for the B+ tree
     private LockContext lockContext;
+
 
     // Constructors ////////////////////////////////////////////////////////////
     /**
@@ -199,13 +201,13 @@ public class BPlusTree {
      * memory will receive 0 points.
      */
     public Iterator<RecordId> scanAll() {
-        // TODO(proj4_integration): Update the following line
-        LockUtil.ensureSufficientLockHeld(lockContext, LockType.NL);
+        LockUtil.ensureSufficientLockHeld(lockContext, LockType.S);
 
-        // TODO(proj2): Return a BPlusTreeIterator.
+        return new BPlusTreeIterator();
 
-        return Collections.emptyIterator();
     }
+
+
 
     /**
      * Returns an iterator over all the RecordIds stored in the B+ tree that
@@ -232,13 +234,12 @@ public class BPlusTree {
      */
     public Iterator<RecordId> scanGreaterEqual(DataBox key) {
         typecheck(key);
-        // TODO(proj4_integration): Update the following line
-        LockUtil.ensureSufficientLockHeld(lockContext, LockType.NL);
+        LockUtil.ensureSufficientLockHeld(lockContext, LockType.S);
+        return new BPlusTreeIterator(key);
 
-        // TODO(proj2): Return a BPlusTreeIterator.
-
-        return Collections.emptyIterator();
     }
+
+
 
     /**
      * Inserts a (key, rid) pair into a B+ tree. If the key already exists in
@@ -258,17 +259,36 @@ public class BPlusTree {
         // Note: You should NOT update the root variable directly.
         // Use the provided updateRoot() helper method to change
         // the tree's root if the old root splits.
-        Optional<Pair<DataBox, Long>> splitInfo = this.root.put(key, rid);
-        if(splitInfo.isPresent()){
-            Pair<DataBox, Long> pair = splitInfo.get();
-            List<DataBox> keys = new ArrayList<>();
-            List<Long> children = new ArrayList<>();
-            keys.add(pair.getFirst());
-            children.add(root.getPage().getPageNum());
-            children.add(pair.getSecond());
-            BPlusNode newRoot = new InnerNode(metadata, bufferManager, keys, children, lockContext);
-            updateRoot(root);
-        }
+//        Optional<Pair<DataBox, Long>> splitInfo = this.root.put(key, rid);
+//        if(splitInfo.isPresent()){
+//            Pair<DataBox, Long> pair = splitInfo.get();
+//            List<DataBox> keys = new ArrayList<>();
+//            List<Long> children = new ArrayList<>();
+//            keys.add(pair.getFirst());
+//            children.add(root.getPage().getPageNum());
+//            children.add(pair.getSecond());
+//            BPlusNode newRoot = new InnerNode(metadata, bufferManager, keys, children, lockContext);
+//            updateRoot(newRoot);
+//        }
+//        return;
+        Optional<Pair<DataBox, Long>> popUpPair = root.put(key, rid);
+        if (!popUpPair.isPresent()) { return; }
+
+        // root split
+
+        // new root data
+        List<DataBox> keys = new ArrayList<>();
+        List<Long> children = new ArrayList<>();
+        keys.add(popUpPair.get().getFirst());
+
+        BPlusNode splitRoot = BPlusNode.fromBytes(metadata, bufferManager, lockContext, popUpPair.get().getSecond());
+        children.add(root.getPage().getPageNum());
+        children.add(popUpPair.get().getSecond());
+
+        InnerNode newRoot = new InnerNode(metadata, bufferManager, keys, children, lockContext);
+        updateRoot(newRoot);
+
+
         return;
     }
 
@@ -281,11 +301,11 @@ public class BPlusTree {
      * be filled up to full and split in half exactly like in put.
      *
      * This method should raise an exception if the tree is not empty at time
-     * of bulk loading. Bulk loading is used when creating a new Index, so think 
-     * about what an "empty" tree should look like. If data does not meet the 
-     * preconditions (contains duplicates or not in order), the resulting 
-     * behavior is undefined. Undefined behavior means you can handle these 
-     * cases however you want (or not at all) and you are not required to 
+     * of bulk loading. Bulk loading is used when creating a new Index, so think
+     * about what an "empty" tree should look like. If data does not meet the
+     * preconditions (contains duplicates or not in order), the resulting
+     * behavior is undefined. Undefined behavior means you can handle these
+     * cases however you want (or not at all) and you are not required to
      * write any explicit checks.
      *
      * The behavior of this method should be similar to that of InnerNode's
@@ -433,20 +453,35 @@ public class BPlusTree {
 
     // Iterator ////////////////////////////////////////////////////////////////
     private class BPlusTreeIterator implements Iterator<RecordId> {
-        // TODO(proj2): Add whatever fields and constructors you want here.
+        private LeafNode currentScanLeaf;
+        private Iterator<RecordId> currentLeafScanIter;
+        private BPlusTreeIterator() {
+            currentScanLeaf = root.getLeftmostLeaf();
+            currentLeafScanIter = currentScanLeaf.scanAll();
+        }
+
+        private BPlusTreeIterator(DataBox key) {
+            currentScanLeaf = root.get(key);
+            currentLeafScanIter = currentScanLeaf.scanGreaterEqual(key);
+        }
 
         @Override
         public boolean hasNext() {
-            // TODO(proj2): implement
-
-            return false;
+            if (!currentLeafScanIter.hasNext() && !currentScanLeaf.getRightSibling().isPresent()) {
+                return false;
+            }
+            while (!currentLeafScanIter.hasNext() && currentScanLeaf != null) {
+                currentScanLeaf = currentScanLeaf.getRightSibling().get();
+                currentLeafScanIter = currentScanLeaf.scanAll();
+            }
+            return currentLeafScanIter.hasNext();
         }
 
         @Override
         public RecordId next() {
-            // TODO(proj2): implement
-
-            throw new NoSuchElementException();
+            if (!hasNext()) { throw new UnsupportedOperationException("There is no next value!"); }
+            return currentLeafScanIter.next();
         }
     }
+
 }

@@ -82,7 +82,7 @@ class InnerNode extends BPlusNode {
     @Override
     public LeafNode get(DataBox key) {
         // TODO(proj2): implement
-        BPlusNode child = BPlusNode.fromBytes(metadata, bufferManager, treeContext, numLessThanEqual(key, this.keys));
+        BPlusNode child = BPlusNode.fromBytes(metadata, bufferManager, treeContext, children.get(numLessThanEqual(key, this.keys)));
         return child.get(key);
     }
 
@@ -99,30 +99,39 @@ class InnerNode extends BPlusNode {
     @Override
     public Optional<Pair<DataBox, Long>> put(DataBox key, RecordId rid) {
         // TODO(proj2): implement
-        BPlusNode child = BPlusNode.fromBytes(metadata, bufferManager, treeContext, children.get(numLessThanEqual(key, keys)));
-        Optional<Pair<DataBox, Long>> splitInfo = child.put(key, rid);
-        if(splitInfo.isPresent()){
-            return splitInfo;
-        }else{
-            Pair<DataBox, Long> pair = splitInfo.get();
-            int index = numLessThan(pair.getFirst(), this.keys);
-            this.keys.add(index, pair.getFirst());
-            this.children.add(index+1, pair.getSecond());
-            if(this.keys.size()<=metadata.getOrder()*2){
-                sync();
-                return Optional.empty();
-            }else{
-                List<DataBox> new_keys = this.keys.subList(metadata.getOrder()+1, this.keys.size());
-                List<Long> new_children = this.children.subList(metadata.getOrder()+1, this.children.size());
-                DataBox split_key = this.keys.get(metadata.getOrder());
-                this.keys = this.keys.subList(0, metadata.getOrder());
-                this.children = this.children.subList(0, metadata.getOrder()+1);
-                sync();
-                InnerNode newInnerNode = new InnerNode(metadata,  bufferManager, new_keys,
-                        new_children, treeContext);
-                return Optional.of(new Pair<DataBox, Long>(split_key, newInnerNode.page.getPageNum()));
-            }
+        int index = numLessThanEqual(key, keys);
+        BPlusNode child = getChild(index);
+        Optional<Pair<DataBox, Long>> pair = child.put(key, rid);
+
+        int order = metadata.getOrder();
+        int maxSize = order * 2;
+
+        // child not split
+        if (!pair.isPresent()) {
+            return Optional.empty();
         }
+        DataBox newKey = pair.get().getFirst();
+        Long newChildPageId = pair.get().getSecond();
+        keys.add(index, newKey);
+        children.add(index + 1, newChildPageId);
+        if (keys.size() <= maxSize) {
+            sync();
+            return Optional.empty();
+        }
+
+        // child split, create a new InnerNode
+        List<DataBox> keys = new ArrayList<>();
+        List<Long> children = new ArrayList<>();
+        for (int i = 0; i < order + 1; i++) {
+            keys.add(this.keys.remove(order));
+            children.add(this.children.remove(order + 1));
+        }
+        DataBox popUpKey = keys.remove(0);
+        InnerNode newNode = new InnerNode(metadata, bufferManager, keys, children, treeContext);
+        long popUpPageNum = newNode.getPage().getPageNum();
+        newNode.sync();
+        sync();
+        return Optional.of(new Pair<>(popUpKey, popUpPageNum));
 
     }
 
